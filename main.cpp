@@ -361,6 +361,93 @@ namespace
 
 }
 
+void Reparam::reparameterizeEntities(gmi_model*model,apf::Mesh2*m,Enclosure box, PiercingCylinder cylinder, Sphere circle1, Sphere circle2){
+    //reparameterizeCylinder(model,m,box, cylinder,circle1,circle2);
+
+    //Need to set the parametric coordinates of each of the boundary vertices
+    std::map<int,int> edgeParam;
+    int edgeScales[12] = {0,1,0,1,0,1,0,1,2,2,2,2};
+    double edgeLengths[3] = {boxLength,boxWidth,boxHeight};
+    for(int i=0;i<12;i++)
+    {
+        edgeParam[box.edgeMap[i]] = edgeScales[i];
+    }
+
+    std::map<int,int(*)[2]> faceParam;
+    int faceScales[6][2] = {{0,2},{1,2},{0,2},{1,2},{0,1},{0,1}};
+    for(int i = 0; i<6;i++)
+    {
+        faceParam[box.faceMap[i]] = &(faceScales[i]); 
+    }
+  
+    apf::MeshIterator* it = m->begin(0);
+    apf::MeshEntity* ent;
+    while( (ent = m->iterate(it)) )
+    {
+        apf::ModelEntity* g_ent = m->toModel(ent);
+    
+        apf::MeshEntity* ev[2];
+        m->getDownward(ent,0,ev);
+        int modelTag = m->getModelTag(g_ent);
+        int modelType = m->getModelType(g_ent);
+        if(modelType<3 && modelType!=0)
+        {
+            apf::Vector3 pt;
+            apf::Vector3 newParam;
+            m->getPoint(ent,0,pt);
+            if(modelType==1)
+            {
+                if(modelTag == circle1.faceID){
+                    double argy = (pt[1]-xyz_offset[1]);
+                    double argx = (pt[0]-xyz_offset[0]);
+                    if(argx == 0 && argy ==0)
+                        newParam[0] = 0.0; // not sure if this will happen or if this is right
+                    else 
+                        newParam[0] = atan2(argy,argx);
+                    m->setParam(ent,newParam);
+                }
+                else if(modelTag == circle2.faceID){
+                    double argy = (pt[1]-xyz_offset[1]);
+                    double argx = (pt[0]-xyz_offset[0]);
+                    if(argx == 0 && argy ==0)
+                        newParam[0] = 0.0; // not sure if this will happen or if this is right
+                    else 
+                        newParam[0] = atan2(argy,argx);
+                    m->setParam(ent,newParam);
+                }
+                else{
+                    int relevantIndex = edgeParam[modelTag];
+                    newParam[0]=pt[relevantIndex]/edgeLengths[relevantIndex];
+                    m->setParam(ent,newParam);
+                }
+            }
+            else if (modelType==2 && modelTag!=cylinder.faceID)
+            { 
+                int* relevantIndex = faceParam[modelTag][0]; //size is 2
+                newParam[0] = pt[relevantIndex[0]]/edgeLengths[relevantIndex[0]];
+                newParam[1] = pt[relevantIndex[1]]/edgeLengths[relevantIndex[1]];
+                m->setParam(ent,newParam);
+            }
+            else if (modelType==2 && modelTag == cylinder.faceID)
+            {
+                double argy = (pt[1]-xyz_offset[1]);
+                double argx = (pt[0]-xyz_offset[0]);
+                if(argx == 0 && argy ==0)
+                    newParam[0] = 0.0; // not sure if this will happen or if this is right
+                else 
+                    newParam[0] = atan2(argy,argx);
+                newParam[1] = pt[2]/boxHeight;
+
+                m->setParam(ent,newParam);
+            }
+
+        } //end if
+  } //end while
+  m->end(it);
+  m->acceptChanges();
+
+}
+
 typedef void (*EntityMapArray) (double const p[2], double x[3], void*);
 typedef void (*ParametricFunctionArray) (double const from[2], double to[2], void*);
 
@@ -407,21 +494,6 @@ void Enclosure::makeBox3D(gmi_model* model)
   agm_bdry b;
   std::vector<std::pair<int,int>> indexPairs = {{0,1}, {1,2}, {2,3}, {3,0},
             {4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}  };
-
-
-  //std::vector<std::pair<int,int>> indexPairs = {{0,1}, {1,2}, {3,2}, {0,3},
-  //          {4,5},{5,6},{7,6},{4,7},{0,4},{1,5},{2,6},{3,7}  };
-
-/*
-  for(int i=0;i<edgeMap.size();i++){
-
-    b = agm_add_bdry(gmi_analytic_topo(model), agm_from_gmi(g_edge[i]));
-    agm_use edgeUse0 = add_adj(model, b, vertexMap[indexPairs[i].first]);
-    agm_use edgeUse0_1 = add_adj(model,b,vertexMap[indexPairs[i].second]);
-    gmi_add_analytic_reparam(model, edgeUse0, reparamVert_zero, 0);
-    gmi_add_analytic_reparam(model, edgeUse0_1, reparamVert_one, 0);
-  }
-*/
 
   b = agm_add_bdry(gmi_analytic_topo(model), agm_from_gmi(g_edge[0]));
   agm_use edgeUse0 = add_adj(model, b, vertexMap[0]);
@@ -572,7 +644,8 @@ void Sphere::makeSphere(gmi_model* model)
 
 void setParameterizationCylinder(gmi_model* model,apf::Mesh2* m, Enclosure box, PiercingCylinder cylinder,Sphere circle1, Sphere circle2 )
 {
-  //Get the classification of each entity in the SimMesh
+  //Get the classification of each entity in the mesh
+  //The .geo file hardcodes the tags of the entities, so we use those tags to facilitate the reclassification
   apf::MeshEntity* ent;
   for(int i =0;i<4;i++)
   {
@@ -587,14 +660,12 @@ void setParameterizationCylinder(gmi_model* model,apf::Mesh2* m, Enclosure box, 
         m->setModelEntity(ent,(apf::ModelEntity*)gmi_find(model,modelType,cylinder.faceID));
       }
       else if(modelTag >= 200){
-        //std::cout<<circle1.faceID<<" "<<circle2.faceID<<" "<<modelTag<<std::endl;
         if(modelTag > 200 && modelTag <= 204)
             m->setModelEntity(ent,(apf::ModelEntity*)gmi_find(model,modelType,circle1.faceID));
         else if(modelTag >= 209 && modelTag <= 212)
             m->setModelEntity(ent,(apf::ModelEntity*)gmi_find(model,modelType,circle2.faceID));
       }
       else{
-        //std::cout<<"belongs nowhere? "<<modelType<<" "<<modelTag<<std::endl;
         m->setModelEntity(ent,(apf::ModelEntity*)gmi_find(model,modelType,modelTag));
       }
 
@@ -606,93 +677,6 @@ void setParameterizationCylinder(gmi_model* model,apf::Mesh2* m, Enclosure box, 
 
   Reparam::reparameterizeEntities(model,m,box,cylinder,circle1,circle2);
  
-}
-
-void Reparam::reparameterizeEntities(gmi_model*model,apf::Mesh2*m,Enclosure box, PiercingCylinder cylinder, Sphere circle1, Sphere circle2){
-    //reparameterizeCylinder(model,m,box, cylinder,circle1,circle2);
-
-    //Need to set the parametric coordinates of each of the boundary vertices
-    std::map<int,int> edgeParam;
-    int edgeScales[12] = {0,1,0,1,0,1,0,1,2,2,2,2};
-    double edgeLengths[3] = {boxLength,boxWidth,boxHeight};
-    for(int i=0;i<12;i++)
-    {
-        edgeParam[box.edgeMap[i]] = edgeScales[i];
-    }
-
-    std::map<int,int(*)[2]> faceParam;
-    int faceScales[6][2] = {{0,2},{1,2},{0,2},{1,2},{0,1},{0,1}};
-    for(int i = 0; i<6;i++)
-    {
-        faceParam[box.faceMap[i]] = &(faceScales[i]); 
-    }
-  
-    apf::MeshIterator* it = m->begin(0);
-    apf::MeshEntity* ent;
-    while( (ent = m->iterate(it)) )
-    {
-        apf::ModelEntity* g_ent = m->toModel(ent);
-    
-        apf::MeshEntity* ev[2];
-        m->getDownward(ent,0,ev);
-        int modelTag = m->getModelTag(g_ent);
-        int modelType = m->getModelType(g_ent);
-        if(modelType<3 && modelType!=0)
-        {
-            apf::Vector3 pt;
-            apf::Vector3 newParam;
-            m->getPoint(ent,0,pt);
-            if(modelType==1)
-            {
-                if(modelTag == circle1.faceID){
-                    double argy = (pt[1]-xyz_offset[1]);
-                    double argx = (pt[0]-xyz_offset[0]);
-                    if(argx == 0 && argy ==0)
-                        newParam[0] = 0.0; // not sure if this will happen or if this is right
-                    else 
-                        newParam[0] = atan2(argy,argx);
-                    m->setParam(ent,newParam);
-                }
-                else if(modelTag == circle2.faceID){
-                    double argy = (pt[1]-xyz_offset[1]);
-                    double argx = (pt[0]-xyz_offset[0]);
-                    if(argx == 0 && argy ==0)
-                        newParam[0] = 0.0; // not sure if this will happen or if this is right
-                    else 
-                        newParam[0] = atan2(argy,argx);
-                    m->setParam(ent,newParam);
-                }
-                else{
-                    int relevantIndex = edgeParam[modelTag];
-                    newParam[0]=pt[relevantIndex]/edgeLengths[relevantIndex];
-                    m->setParam(ent,newParam);
-                }
-            }
-            else if (modelType==2 && modelTag!=cylinder.faceID)
-            { 
-                int* relevantIndex = faceParam[modelTag][0]; //size is 2
-                newParam[0] = pt[relevantIndex[0]]/edgeLengths[relevantIndex[0]];
-                newParam[1] = pt[relevantIndex[1]]/edgeLengths[relevantIndex[1]];
-                m->setParam(ent,newParam);
-            }
-            else if (modelType==2 && modelTag == cylinder.faceID)
-            {
-                double argy = (pt[1]-xyz_offset[1]);
-                double argx = (pt[0]-xyz_offset[0]);
-                if(argx == 0 && argy ==0)
-                    newParam[0] = 0.0; // not sure if this will happen or if this is right
-                else 
-                    newParam[0] = atan2(argy,argx);
-                newParam[1] = pt[2]/boxHeight;
-
-                m->setParam(ent,newParam);
-            }
-
-        } //end if
-  } //end while
-  m->end(it);
-  m->acceptChanges();
-
 }
 
 void initialAdapt_analytic(){
@@ -802,37 +786,30 @@ int main(int argc, char** argv)
   //create analytic model
   gmi_model* model = gmi_make_analytic();
   
-  //add sphere
-
+  //create cylinder first
   PiercingCylinder cylinder = PiercingCylinder();
   cylinder.radius = radius;
-
   cylinder.makePiercingCylinder(model);
-  //int edgeID[2] = {200,201};
+
+  //create bounding circles
   int edgeID[2] = {9,10};
   Sphere circle1 = Sphere(2);
   circle1.faceID = edgeID[0];
   circle1.radius = radius;
-  //can't use makeSphere because of paramterization function is not general
   gmi_add_analytic(model, 1, circle1.faceID, circleFace0, circle1.faPer, circle1.faRan, 0);
 
   Sphere circle2 = Sphere(2);
   circle2.faceID = edgeID[1];
   circle2.radius = radius;
-  //circle2.makeSphere(model);
   gmi_add_analytic(model, 1, circle2.faceID, circleFace1, circle2.faPer, circle2.faRan, 0);
 
   //add the box
   geomDim = dim;
   Enclosure box;
   
-  //add special flag to makeBox to include circles? 
-  //need to classify vertices on these circles independently from the cylindrical face
-  
   box.makeBox3D(model);
-  //create 2 circles, parameterize it as part of the two faces 1 and 6, faces 4+5
 
-  //face ids come from faceMap
+  //reparameterize the circles onto box faces
   agm_bdry b;
   agm_use regionUse;
 
@@ -844,11 +821,12 @@ int main(int argc, char** argv)
   regionUse = add_adj(model, b, circle2.faceID);
   gmi_add_analytic_reparam(model, regionUse, reparam_Circle1, 0);
 
-  //parameterize the cylinder to the region
+  //reparameterize the cylinder to the region
   b = agm_add_bdry(gmi_analytic_topo(model), agm_from_gmi(gmi_find(model,dim,box.regionID)));
   regionUse = add_adj(model, b, cylinder.faceID);
   gmi_add_analytic_reparam(model, regionUse, regionFunction, 0);
 
+  //reparameterize the circles onto cylinder
   b = agm_add_bdry(gmi_analytic_topo(model), agm_from_gmi(gmi_find(model,2,cylinder.faceID)));
   regionUse = add_adj(model, b, circle1.faceID);
   gmi_add_analytic_reparam(model, regionUse, reparam_CircleCylinder0, 0);
