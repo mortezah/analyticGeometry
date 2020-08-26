@@ -673,6 +673,22 @@ void setParameterizationCylinder(gmi_model* model,apf::Mesh2* m, Enclosure box, 
  
 }
 
+void initialUniformRefine_analytic(int level = 2){
+  lion_set_verbosity(1);
+  // lets do a uniform refine and see if things work!
+  apf::writeVtkFiles("before_uniform_refine",m);
+  ma::Input* in = ma::configureUniformRefine(m,level);
+  in->maximumIterations = 3;
+  in->shouldSnap = true;
+  in->shouldTransferParametric = true;
+  in->shouldFixShape = true;
+  in->debugFolder="./debug_uniform_adapt";
+  ma::adaptVerbose(in,true);
+  apf::writeVtkFiles("after_uniform_refine",m);
+
+  return;
+}
+
 void initialAdapt_analytic(){
   //at this point, hmin and hmax haven't been set yet
   //apf::Field* size_initial = apf::createLagrangeField(m,"size_initial",apf::SCALAR,1);
@@ -840,6 +856,7 @@ int main(int argc, char** argv)
   printInfo(model, 2);
   printInfo(model, 3);
 
+  initialUniformRefine_analytic()
   initialAdapt_analytic();
   return 0;
 
