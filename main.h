@@ -1,24 +1,41 @@
 #ifndef CREATE_ANALYTIC_H
 #define CREATE_ANALYTIC_H
 
+#include <PCU.h>
+#include <lionPrint.h>
+
 #include <apf.h>
 #include <apfMDS.h>
 #include <apfMesh2.h>
 #include <apfShape.h>
 
-#include <PCU.h>
+#include <gmi.h>
 #include <gmi_analytic.h>
 #include <gmi_mesh.h>
-#include <apfMesh2.h>
+#include <gmi_null.h>
+
+#include <ma.h>
 
 #include <cassert>
 #include <stdlib.h>
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
-#include<map>
+#include <map>
 #include <math.h>
 #include <pcu_util.h>
+
+
+// model inspection tools
+char const* const typeName[4] =
+{"vertex",
+ "  edge",
+ "  face",
+ "region"};
+
+void printInfo(gmi_model* model, int dim);
+void visualizeFace(gmi_model* model, gmi_ent* entity, int n, int m, const char* fileName);
 
 agm_bdry add_bdry(gmi_model* m, gmi_ent* e);
 agm_use add_adj(gmi_model* m, agm_bdry b, int tag);
